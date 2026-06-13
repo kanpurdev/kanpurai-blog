@@ -1,0 +1,530 @@
+==================================================
+ISSUE #1
+==================================================
+
+Title:
+Critical IDOR in saveBlogAction allows unauthorized blog modifications
+
+Type:
+Security
+
+Priority:
+High
+
+Labels:
+bug, security, high-priority
+
+Problem:
+In `src/server/actions/blog.ts`, the `saveBlogAction` takes an `id` parameter to update an existing blog. However, there is no authorization check to verify that the `id` actually belongs to the user attempting to update it, or that the user has ADMIN privileges. Any authenticated user can modify any other user's blog posts by simply providing the target blog's ID in the server action payload.
+
+Why It Matters:
+This is a critical security vulnerability (Insecure Direct Object Reference). A malicious user can overwrite, deface, or alter published articles belonging to admins or other contributors, completely compromising the integrity of the CMS.
+
+Proposed Solution:
+Add a validation check before calling `prisma.blog.update`. Fetch the existing blog by ID. If it does not exist, throw a 404. If `blog.authorId !== user.id` and `user.role !== "ADMIN"`, throw a Forbidden error.
+
+Acceptance Criteria:
+- `saveBlogAction` fetches the existing blog before updating.
+- The action throws an error if the user is not the author and not an ADMIN.
+- Unit or integration tests confirm that unauthorized updates are blocked.
+
+Implementation Notes:
+```typescript
+if (id) {
+  const existing = await prisma.blog.findUnique({ where: { id } });
+  if (!existing) throw new Error("Not found");
+  if (existing.authorId !== user.id && user.role !== "ADMIN") throw new Error("Forbidden");
+}
+```
+
+Files Likely Affected:
+- src/server/actions/blog.ts
+
+Difficulty:
+Beginner
+
+Estimated Effort:
+XS
+
+==================================================
+ISSUE #2
+==================================================
+
+Title:
+Deleting a category with associated blogs crashes the application
+
+Type:
+Bug
+
+Priority:
+High
+
+Labels:
+bug
+
+Problem:
+In `src/server/actions/taxonomy.ts`, the `deleteCategoryAction` deletes a category by ID. However, in `schema.prisma`, the relation between `Blog` and `Category` does not specify an `onDelete` action. By default, Prisma uses `Restrict`. If an Admin attempts to delete a category that is actively assigned to any blog, Prisma will throw a foreign key constraint error, resulting in an unhandled 500 error and a crash.
+
+Why It Matters:
+Admins are unable to manage taxonomy effectively. They will experience application crashes instead of a graceful UI error when trying to organize categories.
+
+Proposed Solution:
+Update the `schema.prisma` to handle the deletion gracefully. Either set `onDelete: SetNull` on the `category` relation in the `Blog` model, or update `deleteCategoryAction` to check for associated blogs and either prevent deletion (returning a user-friendly error message) or manually remove the category association before deletion.
+
+Acceptance Criteria:
+- Deleting an in-use category no longer throws a Prisma constraint error.
+- Blogs associated with the deleted category have their `categoryId` set to `null`.
+- The dashboard UI reflects the successful deletion.
+
+Implementation Notes:
+Modify `schema.prisma`:
+```prisma
+category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+```
+Run `npx prisma db push` or `prisma migrate dev` afterward.
+
+Files Likely Affected:
+- prisma/schema.prisma
+- src/server/actions/taxonomy.ts
+
+Difficulty:
+Beginner
+
+Estimated Effort:
+XS
+
+==================================================
+ISSUE #3
+==================================================
+
+Title:
+Editing a published blog bypasses the review workflow
+
+Type:
+Bug
+
+Priority:
+Medium
+
+Labels:
+bug, workflow
+
+Problem:
+When a Contributor edits a blog that is already in a `PUBLISHED` state via `saveBlogAction`, the blog is silently updated while retaining its `PUBLISHED` status. The publishing workflow strictly dictates that Contributors can only submit drafts for review, and Admins must approve them. 
+
+Why It Matters:
+Contributors can bypass the editorial review process by getting a benign draft approved, and then maliciously editing the published content afterward. This defeats the purpose of the role-based publishing workflow.
+
+Proposed Solution:
+When an existing blog is updated by a non-admin, force the `status` back to `DRAFT` or `PENDING_REVIEW` if any content changes occur. Alternatively, freeze published blogs for non-admins, requiring them to unpublish or create a new draft revision.
+
+Acceptance Criteria:
+- Contributors updating a `PUBLISHED` blog changes its status back to `DRAFT`.
+- The blog is removed from public view until re-approved by an Admin.
+- Admins can edit published blogs without changing the status.
+
+Implementation Notes:
+Check the original status in `saveBlogAction`. If it was `PUBLISHED` and the user is not an `ADMIN`, force `status: BlogStatus.DRAFT` in the update payload.
+
+Files Likely Affected:
+- src/server/actions/blog.ts
+
+Difficulty:
+Intermediate
+
+Estimated Effort:
+S
+
+==================================================
+ISSUE #4
+==================================================
+
+Title:
+Forms lack input IDs causing severe accessibility (a11y) issues
+
+Type:
+Enhancement
+
+Priority:
+Medium
+
+Labels:
+accessibility, enhancement
+
+Problem:
+Throughout the application (e.g., `src/app/(auth)/login/page.tsx`), form fields are structured like `<div><Label>Email</Label><Input name="email" ... /></div>`. The `Label` component does not have an `htmlFor` attribute, and the `Input` does not have an `id` attribute. 
+
+Why It Matters:
+Screen readers cannot associate the labels with their respective inputs. Users relying on assistive technology will navigate to an input field and not know what data is expected, making the site inaccessible and non-compliant with WCAG guidelines.
+
+Proposed Solution:
+Add matching `id` attributes to all `Input` components and `htmlFor` attributes to their corresponding `Label` components.
+
+Acceptance Criteria:
+- Every `<Input>` has a unique `id`.
+- Every `<Label>` uses `htmlFor` matching the input's `id`.
+- Forms pass automated accessibility audits (e.g., Lighthouse, axe).
+
+Implementation Notes:
+```tsx
+<div>
+  <Label htmlFor="email">Email</Label>
+  <Input id="email" name="email" type="email" required />
+</div>
+```
+Apply this pattern to login, registration, and blog creation forms.
+
+Files Likely Affected:
+- src/app/(auth)/login/page.tsx
+- src/app/(auth)/register/page.tsx
+- src/app/dashboard/blogs/new/page.tsx
+- src/app/dashboard/blogs/[id]/edit/page.tsx
+
+Difficulty:
+Beginner
+
+Estimated Effort:
+S
+
+==================================================
+ISSUE #5
+==================================================
+
+Title:
+Lack of Rate Limiting on Authentication Routes
+
+Type:
+Security
+
+Priority:
+High
+
+Labels:
+security, performance
+
+Problem:
+The `loginAction` and `registerAction` server actions do not implement any form of rate limiting. 
+
+Why It Matters:
+Attackers can easily perform brute force attacks to guess user passwords or execute credential stuffing attacks using automated scripts. They can also spam the registration endpoint to fill the database with fake accounts, leading to resource exhaustion (DoS).
+
+Proposed Solution:
+Implement IP-based rate limiting on sensitive server actions. Since this is a Next.js App Router application, you can use a library like `@upstash/ratelimit` combined with Redis, or implement a basic in-memory rate limiter for a single instance.
+
+Acceptance Criteria:
+- A single IP cannot attempt login more than 5 times per minute.
+- A single IP cannot register more than 3 accounts per hour.
+- Exceeding limits returns a 429 Too Many Requests response or a generic error.
+
+Implementation Notes:
+Integrate `@upstash/ratelimit` inside the server actions. Pass the IP address from the request headers (`x-forwarded-for`) into the rate limiter. If using Next.js Middleware, rate limiting can also be applied at the edge route level.
+
+Files Likely Affected:
+- src/server/actions/auth.ts
+- middleware.ts
+
+Difficulty:
+Advanced
+
+Estimated Effort:
+M
+
+==================================================
+ISSUE #6
+==================================================
+
+Title:
+No Database Indexes on Foreign Keys
+
+Type:
+Performance
+
+Priority:
+Medium
+
+Labels:
+performance, refactor
+
+Problem:
+In `schema.prisma`, there are multiple relation fields like `userId` in `Account` and `Session`, `authorId` in `Comment`, and `blogId` in `ReviewRequest` that do not have `@@index` defined. 
+
+Why It Matters:
+While Prisma automatically creates foreign keys in databases like PostgreSQL, it does not automatically index them. When querying for "all comments by blog ID" or "all sessions by user ID", the database performs a full table scan. As the blog grows, these queries will become severely bottlenecked, increasing response times and database load.
+
+Proposed Solution:
+Add `@@index([userId])`, `@@index([blogId])`, etc., to the relevant models in `schema.prisma`.
+
+Acceptance Criteria:
+- All models with foreign key relations have an explicit index on those columns.
+- Prisma migration is generated and applied successfully.
+
+Implementation Notes:
+Review `schema.prisma` and add indexes:
+```prisma
+model Comment {
+  // ...
+  @@index([blogId])
+  @@index([authorId])
+  @@index([parentId])
+}
+```
+
+Files Likely Affected:
+- prisma/schema.prisma
+
+Difficulty:
+Beginner
+
+Estimated Effort:
+XS
+
+==================================================
+ISSUE #7
+==================================================
+
+Title:
+Server Actions use redirect() inappropriately for RBAC checks
+
+Type:
+Bug
+
+Priority:
+Medium
+
+Labels:
+bug, ux
+
+Problem:
+In `src/lib/rbac.ts`, `requireRole` and `requireUser` use `redirect()` to bounce unauthorized users. However, if these are called from inside a Server Action (e.g., triggered by a form submission or a button click in a Client Component), `redirect()` throws a `NEXT_REDIRECT` error. If not handled correctly by a transition, this results in a harsh application crash or unhandled error state on the client rather than a smooth redirect or error message.
+
+Why It Matters:
+Poor Developer Experience and confusing UX. When an unauthorized user attempts an action, they see an application error instead of a Toast notification saying "Forbidden" or a clean redirect to login.
+
+Proposed Solution:
+Separate UI/Page protection from Server Action protection. For server actions, throw a standard `Error("Unauthorized")` or return a structured `{ error: "Unauthorized" }` object instead of using `redirect()`. Let the client component handle the error and show a toast. 
+
+Acceptance Criteria:
+- Server actions do not use `redirect()` for authorization failures.
+- Unauthorized action attempts result in a clear error message in the UI.
+
+Implementation Notes:
+Create a new utility `verifyRole(roles)` that throws an error rather than redirecting, and use it inside `src/server/actions/*`. Keep `requireRole` with redirects ONLY for server components (page fetching).
+
+Files Likely Affected:
+- src/lib/rbac.ts
+- src/server/actions/blog.ts
+- src/server/actions/taxonomy.ts
+- src/server/actions/users.ts
+
+Difficulty:
+Intermediate
+
+Estimated Effort:
+S
+
+==================================================
+ISSUE #8
+==================================================
+
+Title:
+Missing SEO structured data (JSON-LD) for Blog Details
+
+Type:
+Enhancement
+
+Priority:
+Medium
+
+Labels:
+enhancement, seo
+
+Problem:
+The application is a CMS intended to host blogs, but there is no implementation of structured data (JSON-LD Schema.org) on the individual blog post pages. 
+
+Why It Matters:
+Search engines like Google rely heavily on JSON-LD to understand article content, author, publish date, and featured images. Without it, the blogs will not be eligible for rich snippets (like top stories or article cards) in search results, significantly hurting SEO and organic traffic.
+
+Proposed Solution:
+Inject a `<script type="application/ld+json">` block into the head or body of the blog detail page `src/app/(public)/blog/[slug]/page.tsx` containing the `Article` schema.
+
+Acceptance Criteria:
+- Blog detail pages output valid JSON-LD schema.
+- Schema includes `headline`, `image`, `datePublished`, `dateModified`, and `author`.
+- Validates successfully in the Google Rich Results Test tool.
+
+Implementation Notes:
+```tsx
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": blog.title,
+  // ...
+};
+return (
+  <>
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+  </>
+);
+```
+
+Files Likely Affected:
+- src/app/(public)/blog/[slug]/page.tsx
+
+Difficulty:
+Beginner
+
+Estimated Effort:
+XS
+
+==================================================
+ISSUE #9
+==================================================
+
+Title:
+Missing mechanism to mark notifications as read
+
+Type:
+Enhancement
+
+Priority:
+Low
+
+Labels:
+enhancement, ux
+
+Problem:
+The `DashboardLayout` fetches an `unread` notification count and displays it in the `Topbar`. However, there is no UI workflow or API endpoint to actually mark these notifications as read. 
+
+Why It Matters:
+The unread notification badge will accumulate forever, rendering the notification system useless and frustrating for the user.
+
+Proposed Solution:
+Add a dropdown or a dedicated page for notifications in the Topbar. When a user opens the dropdown or clicks a "Mark all as read" button, trigger a server action that updates the `Notification` records to `read: true`.
+
+Acceptance Criteria:
+- Users can view their notifications in the UI.
+- Unread notifications can be marked as read, clearing the unread counter badge.
+- A server action `markNotificationsRead` is created.
+
+Implementation Notes:
+Create `src/server/actions/notifications.ts` with a function updating `prisma.notification.updateMany({ where: { userId, read: false }, data: { read: true } })`.
+
+Files Likely Affected:
+- src/components/dashboard/topbar.tsx
+- src/server/actions/notifications.ts
+
+Difficulty:
+Intermediate
+
+Estimated Effort:
+S
+
+==================================================
+ISSUE #10
+==================================================
+
+Title:
+Use of arbitrary strings for roles instead of Enums
+
+Type:
+Refactor
+
+Priority:
+Low
+
+Labels:
+refactor
+
+Problem:
+In `schema.prisma`, the `User` model defines `role` as `String @default("USER")`. While an enum is used in TypeScript (`src/lib/enums.ts`), the database schema itself does not enforce this constraint.
+
+Why It Matters:
+If someone modifies the database directly, or a bug introduces a typo in role assignment, users could end up with invalid roles (e.g., "admin" instead of "ADMIN"), leading to broken authorization checks and application errors.
+
+Proposed Solution:
+Convert the `role` field in `schema.prisma` to a native Prisma Enum. *Note: SQLite does not support native enums, so if SQLite is strictly kept for development, a check constraint or application-level validation must be strictly enforced. If migrating to PostgreSQL for production, native Enums should be used.*
+
+Acceptance Criteria:
+- `role` is defined as an `enum Role { USER CONTRIBUTOR ADMIN }` in Prisma.
+- Migrations are generated.
+
+Implementation Notes:
+Update `schema.prisma`:
+```prisma
+enum Role {
+  USER
+  CONTRIBUTOR
+  ADMIN
+}
+
+model User {
+  // ...
+  role Role @default(USER)
+}
+```
+
+Files Likely Affected:
+- prisma/schema.prisma
+
+Difficulty:
+Intermediate
+
+Estimated Effort:
+M
+
+--------------------------------------------------
+GOOD FIRST ISSUES
+--------------------------------------------------
+
+1. Issue #4: Forms lack input IDs causing severe accessibility (a11y) issues.
+2. Issue #6: No Database Indexes on Foreign Keys (SQLite/Postgres).
+3. Issue #8: Missing SEO structured data (JSON-LD) for Blog Details.
+
+--------------------------------------------------
+HIGH IMPACT FEATURES
+--------------------------------------------------
+
+1. Draft autosaving: Implement local storage or periodic API calls to prevent data loss while writing long blog posts.
+2. Media Library: A centralized media upload and management system for cover images and inline blog content, rather than manually pasting URLs.
+3. Full-text search: Replace the basic `contains` Prisma filter with Postgres Full-Text Search, Algolia, or Meilisearch for robust querying and typo tolerance.
+
+--------------------------------------------------
+SECURITY AUDIT FINDINGS
+--------------------------------------------------
+
+1. CRITICAL: Insecure Direct Object Reference (IDOR) in `saveBlogAction` allowing unauthorized users to modify any blog post.
+2. HIGH: Lack of rate limiting on authentication and registration endpoints, allowing brute force and DoS attacks.
+3. MEDIUM: Missing password strength validation during registration.
+
+--------------------------------------------------
+PERFORMANCE IMPROVEMENTS
+--------------------------------------------------
+
+1. Missing indexes on foreign keys (`userId`, `blogId`, etc.) will cause full table scans and degrade performance exponentially as data grows.
+2. The `incrementViewAction` writes to the database synchronously on page load. It should be offloaded to an edge worker, a queue, or batched to prevent database connection exhaustion under heavy traffic.
+3. The blog index page fetches categories and tags sequentially or in parallel, but lacks caching. Categories and tags change infrequently and should be cached using Next.js `unstable_cache` or `revalidate`.
+
+--------------------------------------------------
+OPEN SOURCE ROADMAP
+--------------------------------------------------
+
+1. Patch critical IDOR vulnerability in `saveBlogAction`.
+2. Fix category deletion crash by updating Prisma cascading rules.
+3. Fix workflow bypass bug allowing contributors to edit published blogs without review.
+4. Separate `redirect()` logic from Server Actions to prevent unhandled `NEXT_REDIRECT` errors.
+5. Add rate limiting to authentication routes.
+6. Add database indexes for all foreign keys to ensure scalability.
+7. Fix accessibility issues by adding proper `id` and `htmlFor` tags to forms.
+8. Implement JSON-LD structured data for blog pages.
+9. Build UI for viewing and clearing notifications.
+10. Refactor user roles to use database-level Enums.
+11. Implement image uploading via AWS S3 or Vercel Blob instead of string URLs.
+12. Add pagination to the dashboard tables (currently lists all users/blogs).
+13. Implement full-text search for the public blog index.
+14. Add unit and integration test suites using Vitest/Playwright (currently completely absent).
+15. Add automated CI/CD GitHub Actions for linting and type checking.
+16. Implement password strength validation on registration.
+17. Add email verification workflow before allowing login.
+18. Add an onboarding wizard for the first Admin user.
+19. Cache slow taxonomy queries on the blog listing page.
+20. Implement draft auto-saving to prevent content loss.
