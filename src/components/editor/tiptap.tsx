@@ -17,18 +17,21 @@ export function RichEditor({ value, onChange, onAutosave }: { value: string; onC
       Placeholder.configure({ placeholder: "Start writing your story…" }),
     ],
     content: value || "",
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+      if (onAutosave) {
+        if (autosaveRef.current) clearTimeout(autosaveRef.current);
+        autosaveRef.current = setTimeout(() => onAutosave(editor.getHTML()), 30000);
+      }
+    },
     editorProps: { attributes: { class: "tiptap prose-content max-w-none" } },
     immediatelyRender: false,
   });
 
   const autosaveRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    if (!onAutosave || !editor) return;
-    if (autosaveRef.current) clearTimeout(autosaveRef.current);
-    autosaveRef.current = setTimeout(() => onAutosave(editor.getHTML()), 2500);
     return () => { if (autosaveRef.current) clearTimeout(autosaveRef.current); };
-  }, [value, editor, onAutosave]);
+  }, []);
 
   if (!editor) return <div className="h-[480px] rounded-md border" />;
 
@@ -36,8 +39,12 @@ export function RichEditor({ value, onChange, onAutosave }: { value: string; onC
     <Button type="button" size="icon" variant={active ? "secondary" : "ghost"} onClick={onClick}><Icon className="h-4 w-4" /></Button>
   );
 
+  const text = editor.getText();
+  const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length;
+  const readTime = Math.max(1, Math.ceil(wordCount / 200));
+
   return (
-    <div className="rounded-md border">
+    <div className="rounded-md border flex flex-col">
       <div className="flex flex-wrap items-center gap-1 border-b p-2">
         {btn(editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), Bold)}
         {btn(editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), Italic)}
@@ -54,7 +61,13 @@ export function RichEditor({ value, onChange, onAutosave }: { value: string; onC
           {btn(false, () => editor.chain().focus().redo().run(), Redo)}
         </div>
       </div>
-      <EditorContent editor={editor} />
+      <div className="flex-1 overflow-y-auto">
+        <EditorContent editor={editor} />
+      </div>
+      <div className="border-t p-2 flex justify-between items-center text-xs text-muted-foreground bg-muted/20">
+        <div>{wordCount} words</div>
+        <div>~{readTime} min read</div>
+      </div>
     </div>
   );
 }

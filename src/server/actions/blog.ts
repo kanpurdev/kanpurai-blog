@@ -48,13 +48,48 @@ export async function saveBlogAction(id: string | null, data: Input) {
 
 export async function submitForReviewAction(id: string) {
   const user = await requireUser();
-  const blog = await prisma.blog.findUnique({ where: { id } });
+  const blog = await prisma.blog.findUnique({ where: { id }, include: { tags: true } });
   if (!blog || blog.authorId !== user.id) throw new Error("Forbidden");
-  await prisma.blog.update({ where: { id }, data: { status: BlogStatus.PENDING_REVIEW } });
+  
+  if (blog.status !== BlogStatus.DRAFT && blog.status !== BlogStatus.CHANGES_REQUESTED) {
+    throw new Error("Only drafts or change-requested blogs can be submitted.");
+  }
+
+  // Pre-submission validation (Phase 2 requirement)
+  if (!blog.title || blog.title.trim().length < 10) throw new Error("Title must be at least 10 characters long.");
+  const wordCount = blog.content.trim().split(/\s+/).length;
+  if (wordCount < 300) throw new Error("Content must be at least 300 words long to discourage low-effort submissions.");
+  if (!blog.coverImage) throw new Error("Cover image is required.");
+  if (!blog.categoryId) throw new Error("Category must be selected.");
+  if (!blog.tags || blog.tags.length === 0) throw new Error("At least one tag must be added.");
+
+  await prisma.blog.update({ where: { id }, data: { status: BlogStatus.PENDING_REVIEW, submittedAt: new Date() } });
   await prisma.reviewRequest.create({ data: { blogId: id, status: BlogStatus.PENDING_REVIEW } });
-  const admins = await prisma.user.findMany({ where: { role: Role.ADMIN }, select: { id: true } });
+  
+  const admins = await prisma.user.findMany({ where: { role: { in: [Role.ADMIN, Role.EDITOR] } }, select: { id: true } });
   await Promise.all(admins.map(a => notify(a.id, "BLOG_SUBMITTED", "New blog submitted", blog.title, `/dashboard/reviews/${id}`)));
   revalidatePath("/dashboard");
+}
+
+export async function processDraftExpiryAction() {
+  // To be called by a CRON job / Upstash QStash
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const oneEightyDaysAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+
+  // Soft-archive drafts inactive for 180 days
+  await prisma.blog.updateMany({
+    where: { status: BlogStatus.DRAFT, updatedAt: { lt: oneEightyDaysAgo } },
+    data: { status: BlogStatus.ARCHIVED }
+  });
+
+  // Find drafts inactive for 90 days to send email reminders (skipping for now, would integrate Resend here)
+  const expiringDrafts = await prisma.blog.findMany({
+    where: { status: BlogStatus.DRAFT, updatedAt: { lt: ninetyDaysAgo, gte: oneEightyDaysAgo } },
+    select: { id: true, authorId: true, title: true }
+  });
+  
+  // TODO: send emails
+  console.log(`Expiring drafts: ${expiringDrafts.length}`);
 }
 
 export async function publishDirectlyAction(id: string) {
@@ -68,10 +103,17 @@ export async function publishDirectlyAction(id: string) {
 
 export async function approveAction(id: string) {
   const user = await requireUser();
-  if (user.role !== "ADMIN") throw new Error("Forbidden");
+  if (user.role !== "ADMIN" && user.role !== "EDITOR") throw new Error("Forbidden");
   const blog = await prisma.blog.update({ where: { id }, data: { status: BlogStatus.PUBLISHED, publishedAt: new Date() } });
   await prisma.reviewRequest.create({ data: { blogId: id, status: BlogStatus.APPROVED, reviewerId: user.id } });
-  await notify(blog.authorId, "BLOG_APPROVED", "Your blog was approved", blog.title, `/blog/${blog.slug}`);
+  
+  // Trigger async publish pipeline
+  fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/jobs/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blogId: id })
+  }).catch(e => console.error("Failed to trigger publish job", e));
+
   revalidatePath("/blog"); revalidatePath("/dashboard");
 }
 
