@@ -11,6 +11,13 @@ export async function updateUserRoleAction(userId: string, role: Role) {
   await prisma.user.update({ where: { id: userId }, data: { role } });
   revalidatePath("/dashboard/users");
 }
+
+export async function updateUserStatusAction(userId: string, status: string) {
+  await requireRole(["ADMIN"]);
+  await prisma.user.update({ where: { id: userId }, data: { status } });
+  revalidatePath("/dashboard/users");
+}
+
 export async function deleteUserAction(userId: string) {
   await requireRole(["ADMIN"]);
   await prisma.user.delete({ where: { id: userId } });
