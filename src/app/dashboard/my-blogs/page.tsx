@@ -4,26 +4,72 @@ import { prisma } from "@/lib/prisma";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { formatDate } from "@/lib/utils";
+import { Plus } from "lucide-react";
 
 export default async function MyBlogs() {
   const user = await requireUser();
-  const blogs = await prisma.blog.findMany({ where: { authorId: user.id }, orderBy: { updatedAt: "desc" } });
+  const blogs = await prisma.blog.findMany({ 
+    where: { authorId: user.id }, 
+    orderBy: { updatedAt: "desc" } 
+  });
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between"><h1 className="text-2xl font-bold">My blogs</h1><Button asChild><Link href="/dashboard/blogs/new">New blog</Link></Button></div>
-      <div className="rounded-xl border bg-card">
-        <table className="w-full text-sm">
-          <thead className="border-b text-left text-muted-foreground"><tr><th className="p-3">Title</th><th className="p-3">Status</th><th className="p-3">Updated</th><th className="p-3">Views</th><th className="p-3"></th></tr></thead>
-          <tbody>{blogs.map(b => (
-            <tr key={b.id} className="border-b last:border-0">
-              <td className="p-3 font-medium">{b.title}</td>
-              <td className="p-3"><StatusBadge status={b.status} /></td>
-              <td className="p-3 text-muted-foreground">{formatDate(b.updatedAt)}</td>
-              <td className="p-3">{b.views}</td>
-              <td className="p-3 text-right"><Link href={`/dashboard/blogs/${b.id}/edit`} className="text-primary hover:underline">Edit</Link></td>
-            </tr>
-          ))}</tbody>
-        </table>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header Panel */}
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-foreground to-foreground/75 bg-clip-text text-transparent">
+            My Articles
+          </h1>
+          <p className="text-zinc-500 dark:text-zinc-400 text-xs mt-1">
+            Manage your personal articles, drafts, and contribution history.
+          </p>
+        </div>
+        <Button asChild size="sm" className="rounded-lg font-bold text-xs shadow-none">
+          <Link href="/dashboard/blogs/new" className="flex items-center gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> Write Post
+          </Link>
+        </Button>
+      </div>
+
+      {/* Solid Card container */}
+      <div className="rounded-xl border border-border/80 bg-card shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="border-b border-border/40 text-muted-foreground bg-zinc-50/50 dark:bg-zinc-900/10">
+              <tr>
+                <th className="p-4 font-semibold">Title</th>
+                <th className="p-4 font-semibold">Status</th>
+                <th className="p-4 font-semibold">Updated</th>
+                <th className="p-4 font-semibold">Views</th>
+                <th className="p-4 font-semibold"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/20 font-medium">
+              {blogs.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-zinc-450 dark:text-zinc-500 font-semibold">
+                    You haven't written any posts yet.
+                  </td>
+                </tr>
+              ) : (
+                blogs.map(b => (
+                  <tr key={b.id} className="hover:bg-muted/10 transition-colors">
+                    <td className="p-4 text-foreground font-semibold truncate max-w-xs">{b.title}</td>
+                    <td className="p-4"><StatusBadge status={b.status} /></td>
+                    <td className="p-4 text-muted-foreground font-normal">{formatDate(b.updatedAt)}</td>
+                    <td className="p-4 text-muted-foreground font-semibold">{b.views} reads</td>
+                    <td className="p-4 text-right">
+                      <Button asChild variant="outline" size="xs" className="h-7 rounded-lg font-bold text-3xs">
+                        <Link href={`/dashboard/blogs/${b.id}/edit`}>Edit</Link>
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

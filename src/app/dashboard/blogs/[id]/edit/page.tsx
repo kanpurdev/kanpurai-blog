@@ -9,7 +9,11 @@ export default async function EditBlog({ params }: { params: Promise<{ id: strin
   const blog = await prisma.blog.findUnique({ where: { id }, include: { tags: true, reviews: { orderBy: { createdAt: "desc" }, take: 1 } } });
   if (!blog) notFound();
   if (!(user.role === "ADMIN" || blog.authorId === user.id)) redirect("/dashboard");
-  const [categories, tags] = await Promise.all([prisma.category.findMany(), prisma.tag.findMany()]);
+  const [categories, tags, topics] = await Promise.all([
+    prisma.category.findMany(),
+    prisma.tag.findMany(),
+    prisma.topic.findMany(),
+  ]);
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <h1 className="text-2xl font-bold">Edit blog</h1>
@@ -18,7 +22,14 @@ export default async function EditBlog({ params }: { params: Promise<{ id: strin
           <strong>Reviewer feedback:</strong> {blog.reviews[0].feedback}
         </div>
       )}
-      <BlogForm categories={categories} tags={tags} blog={{ ...blog, tagIds: blog.tags.map(t => t.tagId) }} />
+      <BlogForm 
+        categories={categories} 
+        tags={tags} 
+        topics={topics}
+        role={user.role}
+        blog={{ ...blog, tagIds: blog.tags.map(t => t.tagId) }} 
+      />
     </div>
   );
 }
+

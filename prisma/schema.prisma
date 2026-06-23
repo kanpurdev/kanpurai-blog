@@ -93,6 +93,8 @@ model Blog {
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
   categoryId String?
   category Category? @relation(fields: [categoryId], references: [id])
+  topicId String?
+  topic Topic? @relation(fields: [topicId], references: [id], onDelete: SetNull)
   tags BlogTag[]
   comments Comment[]
   reviews ReviewRequest[]
@@ -103,6 +105,16 @@ model Blog {
   @@index([status, publishedAt])
   @@index([authorId])
 }
+
+model Topic {
+  id          String   @id @default(cuid())
+  title       String   @unique
+  description String?
+  suggestedBy String?  // Store name of the user who suggested it
+  createdAt   DateTime @default(now())
+  blogs       Blog[]
+}
+
 
 model BlogTag {
   blogId String

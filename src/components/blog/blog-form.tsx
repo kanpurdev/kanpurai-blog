@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { RichEditor } from "@/components/editor/tiptap";
 import { saveBlogAction, submitForReviewAction, publishDirectlyAction, deleteBlogAction } from "@/server/actions/blog";
 
-export function BlogForm({ blog, categories, tags }: { blog?: any; categories: any[]; tags: any[] }) {
+export function BlogForm({ blog, categories, tags, topics = [], preselectedTopic, role }: { blog?: any; categories: any[]; tags: any[]; topics?: any[]; preselectedTopic?: any; role?: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [saving, setSaving] = useState<"idle"|"saving"|"saved">("idle");
@@ -23,6 +23,7 @@ export function BlogForm({ blog, categories, tags }: { blog?: any; categories: a
     content: blog?.content ?? "",
     coverImage: blog?.coverImage ?? "",
     categoryId: blog?.categoryId ?? "",
+    topicId: blog?.topicId ?? preselectedTopic?.id ?? "",
     tagIds: (blog?.tagIds ?? []) as string[],
     metaTitle: blog?.metaTitle ?? "",
     metaDescription: blog?.metaDescription ?? "",
@@ -38,6 +39,7 @@ export function BlogForm({ blog, categories, tags }: { blog?: any; categories: a
       const { id } = await saveBlogAction(form.id, {
         title: form.title, excerpt: form.excerpt, content: form.content,
         coverImage: form.coverImage, categoryId: form.categoryId || null,
+        topicId: form.topicId || null,
         tagIds: form.tagIds, metaTitle: form.metaTitle, metaDescription: form.metaDescription, ogImage: form.ogImage,
       } as any);
       setForm(s => ({ ...s, id }));
@@ -60,7 +62,8 @@ export function BlogForm({ blog, categories, tags }: { blog?: any; categories: a
         <div><Label>Title</Label><Input value={form.title} onChange={e=>set("title", e.target.value)} maxLength={160} /></div>
         <div><Label>Excerpt</Label><Textarea value={form.excerpt} onChange={e=>set("excerpt", e.target.value)} maxLength={280} /></div>
         <div><Label>Cover image URL</Label><Input value={form.coverImage} onChange={e=>set("coverImage", e.target.value)} placeholder="https://…" /></div>
-        <div className="grid gap-4 md:grid-cols-2">
+        
+        <div className="grid gap-4 md:grid-cols-3">
           <div>
             <Label>Category</Label>
             <Select value={form.categoryId || undefined} onValueChange={v=>set("categoryId", v)}>
@@ -68,9 +71,21 @@ export function BlogForm({ blog, categories, tags }: { blog?: any; categories: a
               <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
+          
+          <div>
+            <Label>Linked Topic (Optional)</Label>
+            <Select value={form.topicId || "none"} onValueChange={v=>set("topicId", v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="None / Pick a topic" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None / Propose New</SelectItem>
+                {topics.map(t => <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div>
             <Label>Tags</Label>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 pt-1">
               {tags.map(t => {
                 const on = form.tagIds.includes(t.id);
                 return <button key={t.id} type="button" onClick={()=>set("tagIds", on ? form.tagIds.filter((x:string)=>x!==t.id) : [...form.tagIds, t.id])}>
@@ -80,6 +95,7 @@ export function BlogForm({ blog, categories, tags }: { blog?: any; categories: a
             </div>
           </div>
         </div>
+        
         <div><Label>Content</Label><RichEditor value={form.content} onChange={v=>set("content", v)} onAutosave={() => save(true)} /></div>
       </TabsContent>
 
@@ -97,11 +113,14 @@ export function BlogForm({ blog, categories, tags }: { blog?: any; categories: a
             if (!id) return;
             try { await submitForReviewAction(id); toast.success("Submitted for review"); router.push("/dashboard/submitted"); } catch (e:any) { toast.error(e.message); }
           })} disabled={pending}>Submit for review</Button>
-          <Button variant="secondary" onClick={() => start(async () => {
-            const id = form.id ?? await save(true);
-            if (!id) return;
-            try { await publishDirectlyAction(id); toast.success("Published"); router.push("/dashboard/my-blogs"); } catch (e:any) { toast.error(e.message); }
-          })} disabled={pending}>Publish</Button>
+          
+          {role !== "USER" && (
+            <Button variant="secondary" onClick={() => start(async () => {
+              const id = form.id ?? await save(true);
+              if (!id) return;
+              try { await publishDirectlyAction(id); toast.success("Published"); router.push("/dashboard/my-blogs"); } catch (e:any) { toast.error(e.message); }
+            })} disabled={pending}>Publish</Button>
+          )}
         </div>
         {form.id && (
           <Button variant="destructive" onClick={() => start(async () => {

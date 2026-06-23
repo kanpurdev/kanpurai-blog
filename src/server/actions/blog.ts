@@ -14,6 +14,7 @@ const BlogSchema = z.object({
   content: z.string().min(1).max(200_000),
   coverImage: z.string().url().optional().or(z.literal("")).nullable(),
   categoryId: z.string().optional().nullable(),
+  topicId: z.string().optional().nullable(),
   tagIds: z.array(z.string()).default([]),
   metaTitle: z.string().max(160).optional().nullable(),
   metaDescription: z.string().max(280).optional().nullable(),
@@ -34,6 +35,7 @@ export async function saveBlogAction(id: string | null, data: Input) {
     ...parsed,
     coverImage: parsed.coverImage || null, ogImage: parsed.ogImage || null,
     categoryId: parsed.categoryId || null,
+    topicId: parsed.topicId || null,
     slug, readingTime: readingTime(parsed.content), authorId: user.id,
   };
   const { tagIds, ...blogData } = base as any;
@@ -45,6 +47,24 @@ export async function saveBlogAction(id: string | null, data: Input) {
   revalidatePath("/dashboard");
   return { id: blog.id };
 }
+
+export async function createTopicAction(title: string, description?: string) {
+  const user = await requireUser();
+  const cleanTitle = title.trim();
+  if (!cleanTitle) throw new Error("Topic title is required");
+  const exists = await prisma.topic.findUnique({ where: { title: cleanTitle } });
+  if (exists) throw new Error("Topic already exists");
+  const topic = await prisma.topic.create({
+    data: {
+      title: cleanTitle,
+      description: description?.trim() || null,
+      suggestedBy: user.name || user.email,
+    }
+  });
+  revalidatePath("/dashboard/topics");
+  return topic;
+}
+
 
 export async function submitForReviewAction(id: string) {
   const user = await requireUser();

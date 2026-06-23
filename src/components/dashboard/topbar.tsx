@@ -10,7 +10,7 @@ import { useTheme } from "next-themes";
 export function Topbar({ user, unread }: { user: any; unread: number }) {
   const { theme, setTheme } = useTheme();
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-background px-4 md:px-6">
+    <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-background/60 backdrop-blur-md px-6">
       <Link href="/" className="text-sm font-medium text-muted-foreground hover:text-foreground">← Back to site</Link>
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>

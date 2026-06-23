@@ -5,6 +5,9 @@ const config: Config = {
   theme: {
     container: { center: true, padding: "1rem", screens: { "2xl": "1400px" } },
     extend: {
+      fontSize: {
+        "3xs": "10px",
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -17,7 +20,17 @@ const config: Config = {
         muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
         accent: { DEFAULT: "hsl(var(--accent))", foreground: "hsl(var(--accent-foreground))" },
         popover: { DEFAULT: "hsl(var(--popover))", foreground: "hsl(var(--popover-foreground))" },
-        card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" }
+        card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
+        zinc: {
+          450: "#8c8c90",
+          650: "#48484a",
+        },
+        green: {
+          650: "#16a34a",
+        },
+        purple: {
+          "6-00": "#7c3aed",
+        }
       },
       borderRadius: { lg: "var(--radius)", md: "calc(var(--radius) - 2px)", sm: "calc(var(--radius) - 4px)" }
     }
